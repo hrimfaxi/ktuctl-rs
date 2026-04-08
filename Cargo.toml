@@ -2,6 +2,7 @@
 members = [
     "ktuctl-rs",
     "tuctl-client",
+    "tuctl-server",
 ]
 
 resolver = "2"
