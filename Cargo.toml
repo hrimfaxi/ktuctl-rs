@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "ktuctl-rs",
+]
+
+resolver = "2"
