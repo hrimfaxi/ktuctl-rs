@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "ktuctl-rs",
+    "tuctl-client",
 ]
 
 resolver = "2"
