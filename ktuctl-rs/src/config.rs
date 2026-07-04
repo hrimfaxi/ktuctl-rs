@@ -36,6 +36,13 @@ pub const TUTU_CMD_IFNAME_DEL: u8 = 19;
 // Flags
 pub const TUTU_ANY: u64 = 0;
 pub const TUTU_NOEXIST: u64 = 1;
+#[allow(dead_code)]
+pub const TUTU_EXIST: u64 = 2;
+#[allow(dead_code)]
+pub const TUTU_F_LOCK: u64 = 4;
+
+// XOR
+pub const TUTU_XOR_KEY_MAX: usize = 64;
 
 // netlink / genetlink constants
 pub const NLMSG_ALIGNTO: usize = 4;
@@ -58,9 +65,9 @@ pub const NLMSG_DONE: u16 = 0x3;
 #[repr(C)]
 pub struct TutuConfig {
     pub session_max_age: u32,
-    pub _pad0: u8,
+    pub reserved0: u8,
     pub is_server: u8,
-    pub _pad1: [u8; 2],
+    pub reserved1: [u8; 2],
 }
 
 #[derive(Debug, Copy, Clone, IntoBytes, FromBytes, Immutable)]
@@ -77,9 +84,13 @@ pub struct TutuStats {
 #[repr(C)]
 pub struct UserInfoValue {
     pub address: In6Addr,
-    pub icmp_id: u16, // BE
-    pub dport: u16,   // BE
+    pub icmp_id: u16,
+    pub dport: u16,
     pub comment: [u8; 22],
+    pub xor_key: [u8; TUTU_XOR_KEY_MAX],
+    pub xor_key_len: u8,
+    pub reserved2: [u8; 7],
+    pub _pad1: [u8; 2],
 }
 
 #[derive(Debug, Copy, Clone, IntoBytes, FromBytes, Immutable)]
@@ -88,7 +99,6 @@ pub struct TutuUserInfo {
     pub uid: u8,
     pub _pad0: [u8; 3],
     pub value: UserInfoValue,
-    pub _pad1: [u8; 2],
     pub map_flags: u64,
 }
 
@@ -96,15 +106,17 @@ pub struct TutuUserInfo {
 #[repr(C)]
 pub struct EgressPeerKey {
     pub address: In6Addr,
-    pub port: u16, // BE
+    pub port: u16,
     pub _pad0: [u8; 2],
 }
 
 #[derive(Debug, Copy, Clone, IntoBytes, FromBytes, Immutable)]
 #[repr(C)]
 pub struct EgressPeerValue {
-    pub uid: u8,
+    pub xor_key: [u8; TUTU_XOR_KEY_MAX],
     pub comment: [u8; 22],
+    pub xor_key_len: u8,
+    pub uid: u8,
 }
 
 #[derive(Debug, Copy, Clone, IntoBytes, FromBytes, Immutable)]
@@ -112,7 +124,7 @@ pub struct EgressPeerValue {
 pub struct TutuEgress {
     pub key: EgressPeerKey,
     pub value: EgressPeerValue,
-    pub _pad0: [u8; 5],
+    pub _pad0: [u8; 4],
     pub map_flags: u64,
 }
 
@@ -127,7 +139,11 @@ pub struct IngressPeerKey {
 #[derive(Debug, Copy, Clone, IntoBytes, FromBytes, Immutable)]
 #[repr(C)]
 pub struct IngressPeerValue {
-    pub port: u16, // BE
+    pub xor_key: [u8; TUTU_XOR_KEY_MAX],
+    pub xor_key_len: u8,
+    pub reserved0: u8,
+    pub port: u16,
+    pub reserved1: [u8; 4],
 }
 
 #[derive(Debug, Copy, Clone, IntoBytes, FromBytes, Immutable)]
@@ -135,7 +151,7 @@ pub struct IngressPeerValue {
 pub struct TutuIngress {
     pub key: IngressPeerKey,
     pub value: IngressPeerValue,
-    pub _pad0: [u8; 2],
+    pub _pad0: [u8; 4],
     pub map_flags: u64,
 }
 
@@ -143,8 +159,8 @@ pub struct TutuIngress {
 #[repr(C)]
 pub struct SessionKey {
     pub address: In6Addr,
-    pub sport: u16, // BE
-    pub dport: u16, // BE
+    pub sport: u16,
+    pub dport: u16,
 }
 
 #[derive(Debug, Copy, Clone, IntoBytes, FromBytes, Immutable)]
@@ -153,8 +169,8 @@ pub struct SessionValue {
     pub age: u64,
     pub uid: u8,
     pub _pad0: u8,
-    pub client_sport: u16, // BE
-    pub _pad_end: [u8; 4],
+    pub client_sport: u16,
+    pub _pad1: [u8; 4],
 }
 
 #[derive(Debug, Copy, Clone, IntoBytes, FromBytes, Immutable)]
@@ -163,8 +179,9 @@ pub struct TutuSession {
     pub key: SessionKey,
     pub _pad0: [u8; 4],
     pub value: SessionValue,
-    pub _pad1: [u8; 8],
     pub map_flags: u64,
 }
 
-pub type In6Addr = [u8; 16];
+#[derive(Debug, Copy, Clone, PartialEq, IntoBytes, FromBytes, Immutable)]
+#[repr(C, align(4))]
+pub struct In6Addr(pub [u8; 16]);

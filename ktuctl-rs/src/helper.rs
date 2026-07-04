@@ -92,11 +92,11 @@ pub fn resolve_ip(addr: &str) -> Result<In6Addr> {
             res.copy_from_slice(&v6.octets());
         }
     }
-    Ok(res)
+    Ok(In6Addr(res))
 }
 
 pub fn ip_to_string(addr: &In6Addr) -> String {
-    let ip = Ipv6Addr::from(*addr);
+    let ip = Ipv6Addr::from(addr.0);
     if let Some(v4) = ip.to_ipv4() {
         return v4.to_string();
     }
@@ -121,4 +121,31 @@ pub fn copy_comment(dest: &mut [u8; 22], src: &str) {
     let bytes = src.as_bytes();
     let len = bytes.len().min(22);
     dest[..len].copy_from_slice(&bytes[..len]);
+}
+
+pub fn parse_xor_key(hex: &str, key: &mut [u8; TUTU_XOR_KEY_MAX], key_len: &mut u8) -> Result<()> {
+    if hex.is_empty() || !hex.len().is_multiple_of(2) {
+        bail!("xor key must be non-empty hex string with even length");
+    }
+    let len = hex.len() / 2;
+    if len > TUTU_XOR_KEY_MAX {
+        bail!("xor key too long (max {} bytes)", TUTU_XOR_KEY_MAX);
+    }
+    for (i, chunk) in hex.as_bytes().chunks(2).enumerate().take(len) {
+        let hi = u8::from_str_radix(std::str::from_utf8(&[chunk[0]]).unwrap(), 16)
+            .map_err(|_| anyhow!("invalid hex in xor key"))?;
+        let lo = u8::from_str_radix(std::str::from_utf8(&[chunk[1]]).unwrap(), 16)
+            .map_err(|_| anyhow!("invalid hex in xor key"))?;
+        key[i] = (hi << 4) | lo;
+    }
+    *key_len = len as u8;
+    Ok(())
+}
+
+pub fn format_xor_key(key: &[u8; TUTU_XOR_KEY_MAX], len: u8) -> String {
+    let mut s = String::with_capacity(len as usize * 2);
+    for &b in key.iter().take(len as usize) {
+        s.push_str(&format!("{:02x}", b));
+    }
+    s
 }

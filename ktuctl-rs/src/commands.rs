@@ -89,8 +89,8 @@ pub fn cmd_server(args: &[String]) -> Result<()> {
     let cfg = TutuConfig {
         session_max_age: max_age,
         is_server: 1,
-        _pad0: 0,
-        _pad1: [0; 2],
+        reserved0: 0,
+        reserved1: [0; 2],
     };
     send_struct(TUTU_CMD_SET_CONFIG, TUTU_ATTR_CONFIG, &cfg, true)
 }
@@ -100,8 +100,8 @@ pub fn cmd_client(_args: &[String]) -> Result<()> {
     let cfg = TutuConfig {
         session_max_age: 0,
         is_server: 0,
-        _pad0: 0,
-        _pad1: [0; 2],
+        reserved0: 0,
+        reserved1: [0; 2],
     };
     send_struct(TUTU_CMD_SET_CONFIG, TUTU_ATTR_CONFIG, &cfg, true)
 }
@@ -112,6 +112,7 @@ pub fn cmd_client_add(args: &[String]) -> Result<()> {
     let mut uid = 0u8;
     let mut comment = String::new();
     let mut uid_set = false;
+    let mut xor_hex = String::new();
 
     let mut i = 0;
     while i < args.len() {
@@ -145,6 +146,13 @@ pub fn cmd_client_add(args: &[String]) -> Result<()> {
                 comment = args[i + 1].clone();
                 i += 1;
             }
+            "xor" => {
+                if i + 1 >= args.len() {
+                    bail!("missing value for xor");
+                }
+                xor_hex = args[i + 1].clone();
+                i += 1;
+            }
             _ => {}
         }
         i += 1;
@@ -161,6 +169,12 @@ pub fn cmd_client_add(args: &[String]) -> Result<()> {
 
     let in6 = resolve_ip(&address)?;
 
+    let mut xor_key = [0u8; TUTU_XOR_KEY_MAX];
+    let mut xor_key_len = 0u8;
+    if !xor_hex.is_empty() {
+        parse_xor_key(&xor_hex, &mut xor_key, &mut xor_key_len)?;
+    }
+
     let mut egress = TutuEgress {
         key: EgressPeerKey {
             address: in6,
@@ -168,10 +182,12 @@ pub fn cmd_client_add(args: &[String]) -> Result<()> {
             _pad0: [0; 2],
         },
         value: EgressPeerValue {
-            uid,
+            xor_key,
             comment: [0; 22],
+            xor_key_len,
+            uid,
         },
-        _pad0: [0; 5],
+        _pad0: [0; 4],
         map_flags: TUTU_ANY,
     };
     copy_comment(&mut egress.value.comment, &comment);
@@ -182,8 +198,14 @@ pub fn cmd_client_add(args: &[String]) -> Result<()> {
             uid,
             _pad0: [0; 3],
         },
-        value: IngressPeerValue { port: htons(port) },
-        _pad0: [0; 2],
+        value: IngressPeerValue {
+            xor_key,
+            xor_key_len,
+            reserved0: 0,
+            port: htons(port),
+            reserved1: [0; 4],
+        },
+        _pad0: [0; 4],
         map_flags: TUTU_NOEXIST,
     };
 
@@ -197,11 +219,16 @@ pub fn cmd_client_add(args: &[String]) -> Result<()> {
     send_struct(TUTU_CMD_UPDATE_EGRESS, TUTU_ATTR_EGRESS, &egress, true)?;
 
     info!(
-        "client set: {}, address: {}, port: {}, comment: {}",
+        "client set: {}, address: {}, port: {}, comment: {}{}",
         resolve_hostname(uid, false),
         ip_to_string(&in6),
         port,
-        comment
+        comment,
+        if xor_key_len > 0 {
+            ", with xor key"
+        } else {
+            ""
+        }
     );
     Ok(())
 }
@@ -260,8 +287,14 @@ pub fn cmd_client_del(args: &[String]) -> Result<()> {
             uid,
             _pad0: [0; 3],
         },
-        value: IngressPeerValue { port: 0 },
-        _pad0: [0; 2],
+        value: IngressPeerValue {
+            xor_key: [0; TUTU_XOR_KEY_MAX],
+            xor_key_len: 0,
+            reserved0: 0,
+            port: 0,
+            reserved1: [0; 4],
+        },
+        _pad0: [0; 4],
         map_flags: 0,
     };
 
@@ -291,6 +324,7 @@ pub fn cmd_server_add(args: &[String]) -> Result<()> {
     let mut uid = 0u8;
     let mut comment = String::new();
     let mut uid_set = false;
+    let mut xor_hex = String::new();
 
     let mut i = 0;
     while i < args.len() {
@@ -331,6 +365,13 @@ pub fn cmd_server_add(args: &[String]) -> Result<()> {
                 comment = args[i + 1].clone();
                 i += 1;
             }
+            "xor" => {
+                if i + 1 >= args.len() {
+                    bail!("missing value for xor");
+                }
+                xor_hex = args[i + 1].clone();
+                i += 1;
+            }
             _ => {}
         }
         i += 1;
@@ -347,6 +388,12 @@ pub fn cmd_server_add(args: &[String]) -> Result<()> {
 
     let in6 = resolve_ip(&address)?;
 
+    let mut xor_key = [0u8; TUTU_XOR_KEY_MAX];
+    let mut xor_key_len = 0u8;
+    if !xor_hex.is_empty() {
+        parse_xor_key(&xor_hex, &mut xor_key, &mut xor_key_len)?;
+    }
+
     let mut user_info = TutuUserInfo {
         uid,
         _pad0: [0; 3],
@@ -355,8 +402,11 @@ pub fn cmd_server_add(args: &[String]) -> Result<()> {
             icmp_id: htons(icmp_id),
             dport: htons(port),
             comment: [0; 22],
+            xor_key,
+            xor_key_len,
+            reserved2: [0; 7],
+            _pad1: [0; 2],
         },
-        _pad1: [0; 2],
         map_flags: TUTU_ANY,
     };
     copy_comment(&mut user_info.value.comment, &comment);
@@ -368,11 +418,16 @@ pub fn cmd_server_add(args: &[String]) -> Result<()> {
         true,
     )?;
     info!(
-        "server updated: {}, address: {}, dport: {}, comment: {}",
+        "server updated: {}, address: {}, dport: {}, comment: {}{}",
         resolve_hostname(uid, false),
         ip_to_string(&in6),
         port,
-        comment
+        comment,
+        if xor_key_len > 0 {
+            ", with xor key"
+        } else {
+            ""
+        }
     );
     Ok(())
 }
@@ -401,12 +456,15 @@ pub fn cmd_server_del(args: &[String]) -> Result<()> {
         uid,
         _pad0: [0; 3],
         value: UserInfoValue {
-            address: [0; 16],
+            address: In6Addr([0; 16]),
             icmp_id: 0,
             dport: 0,
             comment: [0; 22],
+            xor_key: [0; TUTU_XOR_KEY_MAX],
+            xor_key_len: 0,
+            reserved2: [0; 7],
+            _pad1: [0; 2],
         },
-        _pad1: [0; 2],
         map_flags: 0,
     };
 
@@ -440,14 +498,17 @@ pub fn cmd_status(_args: &[String]) -> Result<()> {
             TUTU_CMD_GET_USER_INFO,
             TUTU_ATTR_USER_INFO,
             |u: &TutuUserInfo| {
-                println!(
-                    "  {}, Address: {}, Dport: {}, ICMP: {}{}",
+                print!(
+                    "  {}, Address: {}, Dport: {}, ICMP: {}",
                     resolve_hostname(u.uid, false),
                     ip_to_string(&u.value.address),
                     ntohs(u.value.dport),
                     ntohs(u.value.icmp_id),
-                    format_comment(&u.value.comment, false)
                 );
+                if u.value.xor_key_len > 0 {
+                    print!(", with xor key");
+                }
+                println!("{}", format_comment(&u.value.comment, false));
                 Ok(())
             },
         )?;
@@ -476,13 +537,16 @@ pub fn cmd_status(_args: &[String]) -> Result<()> {
         let mut cnt = 0;
         dump_structs(TUTU_CMD_GET_EGRESS, TUTU_ATTR_EGRESS, |e: &TutuEgress| {
             if ntohs(e.key.port) != 0 {
-                println!(
-                    "  {}, Address: {}, Port: {}{}",
+                print!(
+                    "  {}, Address: {}, Port: {}",
                     resolve_hostname(e.value.uid, false),
                     ip_to_string(&e.key.address),
                     ntohs(e.key.port),
-                    format_comment(&e.value.comment, false)
                 );
+                if e.value.xor_key_len > 0 {
+                    print!(", with xor key");
+                }
+                println!("{}", format_comment(&e.value.comment, false));
                 cnt += 1;
             }
             Ok(())
@@ -497,12 +561,16 @@ pub fn cmd_status(_args: &[String]) -> Result<()> {
                 TUTU_CMD_GET_INGRESS,
                 TUTU_ATTR_INGRESS,
                 |in_: &TutuIngress| {
-                    println!(
+                    print!(
                         "  {}, Address: {} => Sport: {}",
                         resolve_hostname(in_.key.uid, false),
                         ip_to_string(&in_.key.address),
                         ntohs(in_.value.port)
                     );
+                    if in_.value.xor_key_len > 0 {
+                        print!(", with xor key");
+                    }
+                    println!();
                     Ok(())
                 },
             )?;
@@ -536,14 +604,20 @@ pub fn cmd_dump(_args: &[String]) -> Result<()> {
             TUTU_CMD_GET_USER_INFO,
             TUTU_ATTR_USER_INFO,
             |u: &TutuUserInfo| {
-                println!(
-                    "server-add {} addr {} icmp-id {} port {}{}",
+                print!(
+                    "server-add {} addr {} icmp-id {} port {}",
                     resolve_hostname(u.uid, true),
                     ip_to_string(&u.value.address),
                     ntohs(u.value.icmp_id),
                     ntohs(u.value.dport),
-                    format_comment(&u.value.comment, true)
                 );
+                if u.value.xor_key_len > 0 {
+                    print!(
+                        " xor {}",
+                        format_xor_key(&u.value.xor_key, u.value.xor_key_len)
+                    );
+                }
+                println!("{}", format_comment(&u.value.comment, true));
                 Ok(())
             },
         )?;
@@ -551,13 +625,19 @@ pub fn cmd_dump(_args: &[String]) -> Result<()> {
         println!("client");
         dump_structs(TUTU_CMD_GET_EGRESS, TUTU_ATTR_EGRESS, |e: &TutuEgress| {
             if ntohs(e.key.port) != 0 {
-                println!(
-                    "client-add {} addr {} port {}{}",
+                print!(
+                    "client-add {} addr {} port {}",
                     resolve_hostname(e.value.uid, true),
                     ip_to_string(&e.key.address),
                     ntohs(e.key.port),
-                    format_comment(&e.value.comment, true)
                 );
+                if e.value.xor_key_len > 0 {
+                    print!(
+                        " xor {}",
+                        format_xor_key(&e.value.xor_key, e.value.xor_key_len)
+                    );
+                }
+                println!("{}", format_comment(&e.value.comment, true));
             }
             Ok(())
         })?;

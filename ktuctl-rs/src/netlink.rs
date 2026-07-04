@@ -488,6 +488,8 @@ pub fn dump_structs<T: FromBytes + Immutable>(
 
     socket.send(&msg)?;
 
+    let expected_size = size_of::<T>();
+
     loop {
         let rx = socket.recv()?;
         let mut off = 0usize;
@@ -521,10 +523,10 @@ pub fn dump_structs<T: FromBytes + Immutable>(
                     let attrs = parse_attrs(&rx[attrs_off..msg_end]);
 
                     for (ty, payload) in attrs {
-                        if ty == attr_type {
-                            if let Ok((val, _)) = T::read_from_prefix(payload) {
-                                handler(&val)?;
-                            }
+                        if ty == attr_type && payload.len() >= expected_size {
+                            let val =
+                                unsafe { std::ptr::read_unaligned(payload.as_ptr() as *const T) };
+                            handler(&val)?;
                         }
                     }
                 }
